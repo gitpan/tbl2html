@@ -1,0 +1,155 @@
+#!/usr/cs/bin/perl
+
+# File: tbl2html
+# Author: Anand Natrajan
+# Contact: anand@virginia.edu, http://www.cs.virginia.edu/~an4m/
+# Task: Converts embedded tbl file formats to HTML.
+# I/P and O/P: STDIN and STDOUT
+
+@lines = <>; @output = ();
+
+while ($#lines > -1)
+{
+    if ($lines[0] =~ /^\.TS/)
+    {
+        shift(@lines);
+        push(@output, "<table border>\n");
+        $inheader = 1;    # initially in the field specification lines
+        @formats = @maxbefore = @maxafter = ();
+        @prevvalues = @prevstrides = @strides = (); $stridemark = 0;
+        while (($#lines > -1) && (($_ = $lines[0]) !~ /^\.TE/))
+        {
+            if ($inheader == 1)
+            {
+                chop; push(@formats, $_);   # save the formats
+                if ($formats[-1] =~ /\./)   # till end-of-formats seen
+                    { chop($formats[-1]); $inheader = 0; }
+            }
+            else
+            {
+                # Assume one row per line and tab-separated columns.
+                chop; split(/\t/);
+                @fieldforms = split(/\s+/, $formats[0]);
+                if ($fieldforms[0] =~ /^s/)
+                    { die "First column cannot be a span specification"; }
+                if ($#_ > -1) { push(@output, "\t<tr>\n"); }
+                for ($i = 0; $i <= $#_; $i++)
+                {
+                    $align = ""; $span = 1;
+                    if ($fieldforms[0] =~ /^[LRCN]/)  # spanning rows
+                    {
+                        if ($prevvalues[$i] ne $_[$i])
+                        {
+                            # put a temporary mark for later span count
+                            $align = " rowspan=#$stridemark";
+                            $prevstrides[$i] = $stridemark++;
+                            $strides[$prevstrides[$i]] = 1;
+                            $prevvalues[$i] = $_[$i];
+                        }
+                        else
+                        {
+                            $strides[$prevstrides[$i]]++;
+                            shift(@fieldforms);
+                            while ($fieldforms[0] =~ /^s/) { shift(@fieldforms); }
+                            next;
+                        }
+                    }
+                    if ($fieldforms[0] =~ /^[lL]/) { $align .= " align=left"; }
+                    elsif ($fieldforms[0] =~ /^[rR]/) { $align .= " align=right"; }
+                    elsif ($fieldforms[0] =~ /^[cC]/) { $align .= " align=center"; }
+                    elsif ($fieldforms[0] =~ /^[nN]/)
+                    {
+                        # numbers have to be aligned by padding with spaces
+                        $precount = length(int(abs($number = $_[$i])));
+                        if ($precount > $maxbefore[$i])
+                            { $maxbefore[$i] = $precount; };
+                        $decdigits = (($pos = index($number, ".")) > -1)
+                            ? substr($number, $pos + 1) : "";
+                        # if exponent used, expand it
+                        $decdigits =~ s/[eE].*$//; $decdigits =~ s/0*$//;
+                        $postcount = length($decdigits)
+                            - ((($pos = index(lc($number), "e")) > -1)
+                            ? substr($number, $pos + 1) : 0);
+                        if ($postcount < 0) { $postcount = 0; }
+                        if ($postcount > $maxafter[$i])
+                            { $maxafter[$i] = $postcount; };
+                        # save the field number, number of digits before
+                        # decimal and number of digits after decimal
+                        $align .= " align=numeric$i.$precount.$postcount";
+                    }
+                    shift(@fieldforms);
+                    while ($fieldforms[0] =~ /^s/)
+                        { $span++; shift(@fieldforms); }
+                    $span = ($span > 1) ? " colspan=" . $span : "";
+                    push(@output, "\t\t<td$span$align>$_[$i]</td>\n");
+                }
+                if ($#formats > 0) { shift(@formats); }
+                if ($#_ > -1) { push(@output, "\t</tr>\n"); }
+            }
+            shift(@lines);
+        }
+        push(@output, "</table>\n");
+        foreach (@output)
+        {
+            if ($_ =~ /align=numeric/)
+            {
+                # align numbers to right and pad end with spaces
+                s/align=numeric(\d*).(\d*)\.(\d*)/align=right/;
+                $numform = sprintf("%%.%df", $postcount = $3);
+                if ($maxafter[$i = $1] > 0)
+                {
+                    $padding = $maxafter[$i] - $postcount;
+                    if ($postcount == 0) { $padding++; }
+                    while ($padding > 0) { $padding--; $numform .= "&nbsp;"; }
+                }
+                $number =  substr($_, $firstdigit = index($_, ">") + 1,
+                    index($_, "</") - $firstdigit);
+                # need fixed-width font for numbers
+                substr($_, $firstdigit) = "<font face=\"courier\">"
+                    . sprintf($numform, $number) . "</font></td>\n";
+            }
+            if ($_ =~ /rowspan=#/)
+            {
+                # replace row span marks with actual counts
+                /rowspan=#(\d*)/;
+                if ($strides[$stridemark = $1] == 1) { s/ rowspan=#\d*//; }
+                else { s/rowspan=#\d*/rowspan=$strides[$stridemark]/; }
+            }
+        }
+        shift(@lines);
+    }
+    else
+        { push(@output, $lines[0]); shift(@lines); }
+}
+print @output;
+
+=head1 NAME
+
+tbl2html - a script that converts tbl tables into HTML
+
+=head1 DESCRIPTION
+
+This script takes tables formatted using tbl from STDIN and outputs
+equivalent HTML tables on STDOUT. All tbl directives are processed,
+including numbers. Uppercase versions of tbl directives introduce
+row-spanning.
+
+=head1 README
+
+tbl2html is a tbl to HTML convertor. tbl was a front-end process for troff
+that took tables and output troff directives. tbl's input format is very
+succinct, as opposed to HTML, so I decided to write a convertor from one to
+the other. My convertor ignores everything tbl would have and then changes
+the rest to HTML. The HTML tables are got on STDOUT by feeding the code
+through STDIN to tbl2html. Special mention must be made of the fact that
+numbers are aligned properly. As an additional feature, I allow
+row-spanning to be specified by capitalising the field specifications.
+
+Removed one bug and some warnings from v1.0.
+
+=pod SCRIPT CATEGORIES
+
+CPAN/Administrative
+Fun/Educational
+
+=cut
